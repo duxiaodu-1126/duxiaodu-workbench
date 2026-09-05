@@ -753,7 +753,7 @@ const DAILY_KEEP=14;
 const lsGet=k=>{try{return localStorage.getItem(k);}catch(e){return null;}};
 const lsSet=(k,v)=>{try{localStorage.setItem(k,v);return true;}catch(e){storageOK=false;return false;}};
 const lsDel=k=>{try{localStorage.removeItem(k);}catch(e){}};
-const countRecords=d=>{const s=o=>Array.isArray(o)?o.length:0;return s(d&&d.school)+s(d&&d.external)+s(d&&d.notes)+s(d&&d.trials)+s(d&&d.tasks)+s(d&&d.ideas)+s(d&&d.writings)+s(d&&d.materials)+s(d&&d.projects);};
+const countRecords=d=>{const s=o=>Array.isArray(o)?o.length:0;return s(d&&d.school)+s(d&&d.external)+s(d&&d.evals)+s(d&&d.notes)+s(d&&d.trials)+s(d&&d.tasks)+s(d&&d.ideas)+s(d&&d.writings)+s(d&&d.materials)+s(d&&d.projects)+s(d&&d.exemplars)+s(d&&d.courseLib);};
 const dailyKeys=()=>{const out=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.indexOf(KEY_DAILY_P)===0)out.push(k);}return out.sort();};
 let restoredFrom=null; // 记录自动恢复来源，供提示
 try{const raw=lsGet(KEY_MAIN);db=raw?JSON.parse(raw):null;}catch(e){db=null}
@@ -834,8 +834,38 @@ function autoExportIfNeeded(){
     }catch(e){}
   },1600);
 }
-/* —— 可选：云端备份到 Gitee（令牌仅存于本机浏览器，不写入页面代码）—— */
-function giteeCfg(){try{return JSON.parse(lsGet(KEY_GITEE)||'{}')||{};}catch(e){return {};}}
+/* —— 云端双向同步 · Gitee（令牌已预配置，打开即自动拉取，保存即自动推送）—— */
+const DEFAULT_GITEE={token:'5c65e6fb91734d78c28c2c90c843f135',owner:'duxiaodu-workbench',repo:'du-xiaodus-warehouse',enabled:true};
+function giteeCfg(){try{const saved=JSON.parse(lsGet(KEY_GITEE)||'{}')||{};return Object.assign({},DEFAULT_GITEE,saved);}catch(e){return Object.assign({},DEFAULT_GITEE);}}
+/* 从云端拉取最新数据（打开页面时自动调用） */
+function giteePull(cb){
+  const cfg=giteeCfg();
+  if(!cfg.enabled||!cfg.token||!cfg.owner||!cfg.repo){cb&&cb({ok:false,msg:'未配置云端'});return;}
+  const path='backup/duxiaodu-workbench-data.json';
+  const api='https://gitee.com/api/v5/repos/'+encodeURIComponent(cfg.owner)+'/'+encodeURIComponent(cfg.repo)+'/contents/'+path;
+  fetch(api+'?access_token='+encodeURIComponent(cfg.token)).then(r=>{
+    if(r.status===404){cb&&cb({ok:false,msg:'云端暂无备份'});return null;}
+    return r.json();
+  }).then(j=>{
+    if(!j||!j.content){cb&&cb({ok:false,msg:'云端数据为空'});return;}
+    try{
+      const raw=decodeURIComponent(escape(atob(j.content.replace(/\s/g,''))));
+      const cloudData=JSON.parse(raw);
+      const localCount=countRecords(db);
+      const cloudCount=countRecords(cloudData);
+      const cloudNewer=cloudData._savedAt&&(!db._savedAt||cloudData._savedAt>db._savedAt);
+      if(cloudCount>localCount||cloudNewer){
+        Object.assign(db,cloudData);
+        if(!db.exemplars)db.exemplars=[];
+        lsSet(KEY_MAIN,JSON.stringify(db));
+        lsSet(KEY_SHADOW,JSON.stringify(db));
+        cb&&cb({ok:true,msg:'已从云端恢复 '+cloudCount+' 条记录',restored:true});
+      }else{
+        cb&&cb({ok:true,msg:'本地数据已是最新',restored:false});
+      }
+    }catch(e){cb&&cb({ok:false,msg:'云端数据解析失败：'+String(e)});}
+  }).catch(e=>cb&&cb({ok:false,msg:'云端拉取失败：'+String(e.message||e)}));
+}
 function cloudSyncNow(cb){
   const cfg=giteeCfg();
   if(!cfg.enabled||!cfg.token||!cfg.owner||!cfg.repo){db._giteeLastError='未配置令牌或未启用';cb&&cb({ok:false,msg:'未配置 Gitee 云端（需填写令牌并勾选启用）'});return;}
@@ -2098,27 +2128,28 @@ function renderNotes(){
       </div>
       <div class="hr"></div>
       <div class="row">
-        <div class="grow"><div class="row-title">云端备份 · Gitee（可选，推荐）</div>
-          <div class="row-sub">开启后每次保存自动同步一份到你的 Gitee 仓库，即使浏览器本地清空也能云端找回。令牌只保存在本机浏览器里，不写入页面。</div>
+        <div class="grow"><div class="row-title">云端双向同步 · Gitee（令牌已预配置）</div>
+          <div class="row-sub">打开页面自动从云端拉取最新数据，每次保存自动推送到云端。换设备也能实时同步，令牌已内置无需手动输入。</div>
           <div style="margin-top:4px;display:flex;gap:10px;flex-wrap:wrap;font-size:12px">
-            <span class="chip ${giteeCfg().token?'green':'moss'}">${giteeCfg().token?'令牌已填':'未填令牌'}</span>
-            <span class="chip ${giteeCfg().enabled?'green':'moss'}">${giteeCfg().enabled?'自动同步已启用':'未启用自动同步'}</span>
-            <span class="chip ${db._giteeSyncAt?'green':'moss'}">${db._giteeSyncAt?('最近同步 '+new Date(db._giteeSyncAt).toLocaleTimeString('zh-CN',{hour12:false})):'尚未同步成功'}</span>
+            <span class="chip green">令牌已预配置</span>
+            <span class="chip ${giteeCfg().enabled?'green':'moss'}">${giteeCfg().enabled?'双向同步已启用':'同步未启用'}</span>
+            <span class="chip ${db._giteeSyncAt?'green':'moss'}">${db._giteeSyncAt?('最近推送 '+new Date(db._giteeSyncAt).toLocaleTimeString('zh-CN',{hour12:false})):'尚未推送成功'}</span>
           </div>
           ${db._giteeLastError?`<div class="tiny wine" style="margin-top:4px">上次错误：${esc(db._giteeLastError)}</div>`:''}
         </div>
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0">
-        <input type="text" id="giteeToken" placeholder="Gitee 私人令牌（32位，勾选 projects 权限）" value="${esc(giteeCfg().token||'')}" style="flex:1;min-width:170px">
+        <input type="text" id="giteeToken" placeholder="Gitee 私人令牌" value="${esc(giteeCfg().token||'')}" style="flex:1;min-width:170px">
         <input type="text" id="giteeOwner" placeholder="仓库属主" value="${esc(giteeCfg().owner||'duxiaodu-workbench')}" style="flex:1;min-width:130px">
         <input type="text" id="giteeRepo" placeholder="仓库名" value="${esc(giteeCfg().repo||'du-xiaodus-warehouse')}" style="flex:1;min-width:150px">
       </div>
-      <div class="tiny muted" style="margin-bottom:8px">没有令牌？<a href="https://gitee.com/profile/personal_access_tokens" target="_blank" rel="noopener">点此去 Gitee 创建私人令牌</a>（描述填「杜小杜工作台」，权限只勾 <b>projects</b>，过期选「永不过期」）→ 复制粘贴到上方 → 勾「启用自动同步」→ 先点「测试连接」确认无误，再「保存设置」。</div>
+      <div class="tiny muted" style="margin-bottom:8px">令牌已内置，无需修改。如需更换仓库，修改属主和仓库名后点「保存设置」即可。</div>
       <div style="display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap">
-        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--green-2)"><input type="checkbox" id="giteeEnabled" ${giteeCfg().enabled?'checked':''}>启用自动同步</label>
+        <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--green-2)"><input type="checkbox" id="giteeEnabled" ${giteeCfg().enabled?'checked':''}>启用双向同步</label>
+        <button class="btn" data-action="gitee-pull">从云端恢复</button>
         <button class="btn" data-action="gitee-test">测试连接</button>
         <button class="btn" data-action="gitee-save">保存设置</button>
-        <button class="btn" data-action="gitee-sync">立即同步</button>
+        <button class="btn" data-action="gitee-sync">立即推送</button>
       </div>
     </div>`;
 }
@@ -2229,6 +2260,8 @@ function render(){
   window.scrollTo({top:0});
 }
 window.addEventListener('DOMContentLoaded',render);
+/* 打开页面1秒后自动从云端拉取最新数据（双向同步） */
+window.addEventListener('DOMContentLoaded',()=>{setTimeout(()=>{giteePull(r=>{if(r.ok&&r.restored){render();toast(r.msg);}else if(r.ok&&!r.restored){/* 本地已是最新，静默 */}else{/* 拉取失败不打扰用户 */}});},1200);});
 
 /* ============================================================
    弹窗
@@ -2594,6 +2627,14 @@ document.addEventListener('click',e=>{
         db.projects.forEach(ensureSteps);
         save();render();toast('已从「'+src+'」恢复数据 · '+countRecords(db)+' 条记录');
       }else if(!restored){toast('暂未找到可恢复的自动备份');}
+      break}
+    case 'gitee-pull':{
+      toast('正在从云端拉取最新数据…');
+      giteePull(r=>{
+        if(r.ok&&r.restored){render();toast('✓ '+r.msg);}
+        else if(r.ok&&!r.restored){toast('本地数据已是最新');}
+        else{toast('✗ '+r.msg);}
+      });
       break}
     case 'gitee-save':{
       const token=((document.getElementById('giteeToken')||{}).value||'').trim();
