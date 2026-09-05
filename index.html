@@ -405,6 +405,7 @@ const MODULES={
   trial:{name:'试讲',vol:'卷四',icon:'lectern'},
   evaluate:{name:'听评课',vol:'卷五',icon:'ear'},
   writing:{name:'写作',vol:'卷六',icon:'write'},
+  exemplars:{name:'习课',vol:'卷七',icon:'star'},
   notes:{name:'随手记',vol:'便笺',icon:'write'},
   ideas:{name:'灵感库',vol:'札记',icon:'bulb'},
   timeline:{name:'时间线',vol:'索引',icon:'timeline'},
@@ -953,7 +954,7 @@ window.addEventListener('hashchange',render);
 function renderNav(){
   const groups=[
     {kicker:'案头',items:['today']},
-    {kicker:'书卷 · 六艺',items:SIX},
+    {kicker:'书卷 · 七录',items:['prep','class','research','trial','evaluate','writing','exemplars']},
     {kicker:'工具',items:['notes','ideas','timeline','search']},
   ];
   const rt=currentRoute();
