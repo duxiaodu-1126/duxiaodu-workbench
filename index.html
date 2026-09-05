@@ -836,17 +836,19 @@ function autoExportIfNeeded(){
 }
 /* —— 云端双向同步 · Gitee（令牌已预配置，打开即自动拉取，保存即自动推送）—— */
 const DEFAULT_GITEE={token:'5c65e6fb91734d78c28c2c90c843f135',owner:'duxiaodu-workbench',repo:'du-xiaodus-warehouse',enabled:true};
+let _cloudReady=false; /* 初始云端拉取完成前，禁止推送（防止种子数据覆盖好数据） */
 function giteeCfg(){try{const saved=JSON.parse(lsGet(KEY_GITEE)||'{}')||{};return Object.assign({},DEFAULT_GITEE,saved);}catch(e){return Object.assign({},DEFAULT_GITEE);}}
-/* 从云端拉取最新数据（打开页面时自动调用） */
+/* 从云端拉取最新数据（打开页面时立即调用，拉取完成前禁止推送） */
 function giteePull(cb){
   const cfg=giteeCfg();
-  if(!cfg.enabled||!cfg.token||!cfg.owner||!cfg.repo){cb&&cb({ok:false,msg:'未配置云端'});return;}
+  if(!cfg.enabled||!cfg.token||!cfg.owner||!cfg.repo){_cloudReady=true;cb&&cb({ok:false,msg:'未配置云端'});return;}
   const path='backup/duxiaodu-workbench-data.json';
   const api='https://gitee.com/api/v5/repos/'+encodeURIComponent(cfg.owner)+'/'+encodeURIComponent(cfg.repo)+'/contents/'+path;
   fetch(api+'?access_token='+encodeURIComponent(cfg.token)).then(r=>{
-    if(r.status===404){cb&&cb({ok:false,msg:'云端暂无备份'});return null;}
+    if(r.status===404){_cloudReady=true;cb&&cb({ok:false,msg:'云端暂无备份'});return null;}
     return r.json();
   }).then(j=>{
+    _cloudReady=true;
     if(!j||!j.content){cb&&cb({ok:false,msg:'云端数据为空'});return;}
     try{
       const raw=decodeURIComponent(escape(atob(j.content.replace(/\s/g,''))));
@@ -854,9 +856,12 @@ function giteePull(cb){
       const localCount=countRecords(db);
       const cloudCount=countRecords(cloudData);
       const cloudNewer=cloudData._savedAt&&(!db._savedAt||cloudData._savedAt>db._savedAt);
-      if(cloudCount>localCount||cloudNewer){
+      const localEmpty=localCount===0||(localCount<=5&&cloudCount>20); /* 本地几乎为空时强制从云端恢复 */
+      if(cloudCount>localCount||cloudNewer||localEmpty){
         Object.assign(db,cloudData);
         if(!db.exemplars)db.exemplars=[];
+        if(!db.evals)db.evals=[];
+        if(!db.courseLib)db.courseLib=[];
         lsSet(KEY_MAIN,JSON.stringify(db));
         lsSet(KEY_SHADOW,JSON.stringify(db));
         cb&&cb({ok:true,msg:'已从云端恢复 '+cloudCount+' 条记录',restored:true});
@@ -864,7 +869,7 @@ function giteePull(cb){
         cb&&cb({ok:true,msg:'本地数据已是最新',restored:false});
       }
     }catch(e){cb&&cb({ok:false,msg:'云端数据解析失败：'+String(e)});}
-  }).catch(e=>cb&&cb({ok:false,msg:'云端拉取失败：'+String(e.message||e)}));
+  }).catch(e=>{_cloudReady=true;cb&&cb({ok:false,msg:'云端拉取失败：'+String(e.message||e)});});
 }
 function cloudSyncNow(cb){
   const cfg=giteeCfg();
@@ -908,7 +913,14 @@ function testGiteeConnection(cb){
   }).catch(e=>cb&&cb({ok:false,msg:'网络请求失败：'+String(e.message||e)}));
 }
 let _cloudTimer=null;
-function cloudSyncQueued(){const cfg=giteeCfg();if(!cfg.enabled||!cfg.token)return;clearTimeout(_cloudTimer);_cloudTimer=setTimeout(()=>cloudSyncNow(()=>{}),3000);}
+function cloudSyncQueued(){
+  const cfg=giteeCfg();
+  if(!cfg.enabled||!cfg.token)return;
+  if(!_cloudReady)return; /* 初始拉取未完成，禁止推送（防止种子数据覆盖） */
+  if(countRecords(db)<=5){return;} /* 本地记录过少（疑似种子数据），禁止自动推送 */
+  clearTimeout(_cloudTimer);
+  _cloudTimer=setTimeout(()=>cloudSyncNow(()=>{}),3000);
+}
 
 /* 项目步骤补齐（自动拆进度） */
 function ensureSteps(p){
@@ -2260,8 +2272,8 @@ function render(){
   window.scrollTo({top:0});
 }
 window.addEventListener('DOMContentLoaded',render);
-/* 打开页面1秒后自动从云端拉取最新数据（双向同步） */
-window.addEventListener('DOMContentLoaded',()=>{setTimeout(()=>{giteePull(r=>{if(r.ok&&r.restored){render();toast(r.msg);}else if(r.ok&&!r.restored){/* 本地已是最新，静默 */}else{/* 拉取失败不打扰用户 */}});},1200);});
+/* 打开页面立即从云端拉取最新数据（拉取完成前禁止推送，防止种子数据覆盖） */
+window.addEventListener('DOMContentLoaded',()=>{giteePull(r=>{if(r.ok&&r.restored){render();toast(r.msg);}});});
 
 /* ============================================================
    弹窗
