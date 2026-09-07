@@ -753,7 +753,7 @@ const DAILY_KEEP=14;
 const lsGet=k=>{try{return localStorage.getItem(k);}catch(e){return null;}};
 const lsSet=(k,v)=>{try{localStorage.setItem(k,v);return true;}catch(e){storageOK=false;return false;}};
 const lsDel=k=>{try{localStorage.removeItem(k);}catch(e){}};
-const countRecords=d=>{const s=o=>Array.isArray(o)?o.length:0;return s(d&&d.school)+s(d&&d.external)+s(d&&d.evals)+s(d&&d.notes)+s(d&&d.trials)+s(d&&d.tasks)+s(d&&d.ideas)+s(d&&d.writings)+s(d&&d.materials)+s(d&&d.projects)+s(d&&d.exemplars)+s(d&&d.courseLib);};
+const countRecords=d=>{const s=o=>Array.isArray(o)?o.length:0;return s(d&&d.school)+s(d&&d.external)+s(d&&d.evals)+s(d&&d.notes)+s(d&&d.trials)+s(d&&d.tasks)+s(d&&d.ideas)+s(d&&d.writings)+s(d&&d.materials)+s(d&&d.projects)+s(d&&d.exemplars)+s(d&&d.courseLib)+s(d&&d.fanwen)+s(d&&d.imits);};
 const dailyKeys=()=>{const out=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k&&k.indexOf(KEY_DAILY_P)===0)out.push(k);}return out.sort();};
 let restoredFrom=null; // 记录自动恢复来源，供提示
 try{const raw=lsGet(KEY_MAIN);db=raw?JSON.parse(raw):null;}catch(e){db=null}
@@ -794,6 +794,8 @@ if(!db.evals)db.evals=[];
 if(!db.trials)db.trials=[];
 if(!db.tasks)db.tasks=[];
 if(!db.exemplars)db.exemplars=[];
+if(!db.fanwen)db.fanwen=[];
+if(!db.imits)db.imits=[];
 let storageOK=true;
 try{localStorage.setItem(KEY_MAIN+'_probe','1');localStorage.removeItem(KEY_MAIN+'_probe');}catch(e){storageOK=false}
 /* 保存 = 主数据 + 影子备份 + 每日快照 三层落盘 + 可选云端同步 */
@@ -1587,8 +1589,9 @@ function renderWriting(tab){
       <button class="btn ${tabNow==='doc'?'btn-primary':'btn-ghost'}" data-action="write-tab" data-v="doc">临时写作</button>
       <button class="btn ${tabNow==='task'?'btn-primary':'btn-ghost'}" data-action="write-tab" data-v="task">微课 · 宣讲</button>
       <button class="btn ${tabNow==='mat'?'btn-primary':'btn-ghost'}" data-action="write-tab" data-v="mat">学习素材采集</button>
+      <button class="btn ${tabNow==='imitate'?'btn-primary':'btn-ghost'}" data-action="write-tab" data-v="imitate">模仿写作</button>
       <span style="flex:1"></span>
-      ${tabNow==='doc'?`<button class="btn btn-primary" data-action="q-writing">${ic('plus')}新建文稿</button>`:tabNow==='task'?`<button class="btn btn-primary" data-action="q-task">${ic('plus')}新建微课 / 宣讲</button>`:`<button class="btn btn-primary" data-action="q-material">${ic('plus')}收一条素材</button>`}
+      ${tabNow==='doc'?`<button class="btn btn-primary" data-action="q-writing">${ic('plus')}新建文稿</button>`:tabNow==='task'?`<button class="btn btn-primary" data-action="q-task">${ic('plus')}新建微课 / 宣讲</button>`:tabNow==='mat'?`<button class="btn btn-primary" data-action="q-material">${ic('plus')}收一条素材</button>`:`<button class="btn btn-primary" data-action="q-fanwen">${ic('plus')}收录范文</button>`}
     </div>
     ${tabNow==='doc'?`
       <div class="grid grid-2">
@@ -1646,7 +1649,7 @@ function renderWriting(tab){
             ${k.note?`<div class="hr"></div><div class="tiny muted">附注：${esc(k.note)}</div>`:''}
           </div>`;
         }).join('')||`<div class="card"><div class="empty"><div class="seal-line">工</div>尚无微课与宣讲安排。录制微课有 300 元奖金单，宣讲每场次 200 元。</div></div>`}
-      </div>`:`
+      </div>`:tabNow==='imitate'?renderImitate():`
       ${(()=>{
         const feed=dailyFeed();
         const doneTitles=db.feedDone[t]||[];
@@ -1696,6 +1699,141 @@ function renderWriting(tab){
           ${db.sources.map(s=>`<span class="chip">${esc(s.name)}<span class="tiny muted">· ${esc(s.kind)}</span></span>`).join('')}
         </div>
       </div>`}`;
+}
+
+/* ============================================================
+   模仿写作 · 卷六工作台（范文库 + 模仿任务 → 豆包开工）
+   ============================================================ */
+function renderImitate(){
+  const fws=db.fanwen.slice().sort((a,b)=>(b.created||'').localeCompare(a.created||''));
+  const ims=db.imits.slice().sort((a,b)=>(b.created||'').localeCompare(a.created||''));
+  const fwName=id=>{const f=db.fanwen.find(x=>x.id===id);return f?f.title:'（未关联范文）';};
+  const fwChars=f=>f&&f.content?f.content.replace(/\s/g,'').length:0;
+  return `
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-head"><div class="card-title"><span class="tick"></span>模仿写作 · 用法</div></div>
+      <div class="tiny muted" style="line-height:1.8">三步走：① 收录一篇好范文（报刊理论文章、专家讲稿皆可）→ ② 新建模仿任务，填主题、场合、受众、时长 → ③ 点「到豆包开工」，工作台按范文结构生成专业模仿提示词，复制后在豆包粘贴即可仿写出同类风格成稿。</div>
+    </div>
+    <div class="grid grid-2" style="margin-bottom:18px">
+      <div class="card">
+        <div class="card-head"><div class="card-title">范文库</div><span class="tiny muted">${fws.length} 篇</span></div>
+        ${fws.map(f=>`<div class="row" style="padding:9px 2px">
+          <div class="grow">
+            <div class="row-title">${esc(f.title)}</div>
+            <div class="row-sub">${fwChars(f)} 字 · 收录于 ${fmtCN(f.created||'')}${f.note?' · '+esc(f.note):''}</div>
+          </div>
+          <button class="btn-icon" data-action="edit-fanwen" data-id="${f.id}" title="编辑范文">${ic('edit')}</button>
+          <button class="btn-icon btn-danger" data-action="del-fanwen" data-id="${f.id}">${ic('trash')}</button>
+        </div>`).join('')||`<div class="empty"><div class="seal-line">范</div>范文库还空着。把让你眼前一亮的报刊文章、专家讲稿收进来。</div>`}
+      </div>
+      <div class="card">
+        <div class="card-head"><div class="card-title">模仿任务</div><span class="tiny muted">${ims.length} 项</span></div>
+        ${ims.map(im=>{
+          const pp=im.needPPT?'含配套课件':'仅文稿';
+          return `<div class="row" style="padding:9px 2px">
+            <div class="grow">
+              <div class="row-title">${esc(im.title||im.theme||'（未定题）')}</div>
+              <div class="row-sub">${im.theme&&im.title?esc(im.theme)+' · ':''}${esc(im.occasion||'')} · ${esc(im.audience||'')} · ${esc(im.duration||'')}分钟${im.words?'/约'+esc(im.words)+'字':''} · ${pp} · 范文：${esc(fwName(im.fanwenId))}</div>
+            </div>
+            <button class="btn btn-sm btn-primary" data-action="doubao-imit" data-id="${im.id}" title="生成模仿提示词并到豆包开工">${ic('send')}开工</button>
+            <button class="btn-icon" data-action="edit-imit" data-id="${im.id}">${ic('edit')}</button>
+            <button class="btn-icon btn-danger" data-action="del-imit" data-id="${im.id}">${ic('trash')}</button>
+          </div>`;
+        }).join('')||`<div class="empty"><div class="seal-line">仿</div>还没有模仿任务。选一篇范文，点右上「收录范文」旁按钮新建即可。${``}</div>`}
+      </div>
+    </div>`;
+}
+function fanwenForm(fw){
+  return `<form data-form="fanwen"><div class="tiny muted" style="margin-bottom:10px">收录你想模仿的范文原文（报刊理论文章、专家讲稿、领导讲话皆可）。生成提示词时会整篇附给豆包精读。</div>
+  ${fld('范文标题',`<input name="title" placeholder="如：建设便携高效的农业社会化服务体系" value="${esc(fw&&fw.title||'')}" required>`)}
+  ${fld('备注（可选）',`<input name="note" placeholder="如：江西日报理论版 · 总分总 · 无小标题" value="${esc(fw&&fw.note||'')}">`)}
+  ${fld('范文正文',`<textarea name="content" style="min-height:220px" placeholder="粘贴范文全文……" required>${esc(fw&&fw.content||'')}</textarea>`)}
+  <div class="form-actions">
+    <button type="button" class="btn btn-ghost" data-action="close-modal">取消</button>
+    <button type="submit" class="btn btn-primary">${fw?'保存修改':'收录范文'}</button>
+  </div></form>`;
+}
+function imitForm(im){
+  const fwOpts=db.fanwen.map(f=>`<option value="${f.id}" ${im&&im.fanwenId===f.id?'selected':''}>${esc(f.title)}</option>`).join('');
+  return `<form data-form="imit"><div class="tiny muted" style="margin-bottom:10px">填好任务要素，生成提示词时工作台会自动换算字数与课件页数，并整篇附上所选范文。</div>
+  ${fld('题目（可待定）',`<input name="title" placeholder="待定，或给一个醒目对仗的题目" value="${esc(im&&im.title||'')}">`)}
+  ${fld('主题',`<input name="theme" placeholder="如：地方党校专职教师成长的难题审思与破解路径" value="${esc(im&&im.theme||'')}" required>`)}
+  ${fld('关联范文',`<select name="fanwenId"><option value="">（不关联，稍后在提示词中自备范文）</option>${fwOpts}</select>`)}
+  <div class="grid grid-2" style="gap:10px">
+    ${fld('场合',`<input name="occasion" placeholder="如：江西日报理论版" value="${esc(im&&im.occasion||'')}">`)}
+    ${fld('受众',`<input name="audience" placeholder="如：江西日报读者" value="${esc(im&&im.audience||'')}">`)}
+    ${fld('时长（分钟）',`<input name="duration" type="number" min="3" max="180" placeholder="如：6" value="${im&&im.duration||''}">`)}
+    ${fld('字数（留空自动按 220字/分钟 换算）',`<input name="words" type="number" min="200" max="50000" placeholder="如：1600" value="${im&&im.words||''}">`)}
+  </div>
+  <div class="fld-row" style="margin:10px 0">${fld('是否需要配套课件',`<label class="check-line"><input type="checkbox" name="needPPT" ${im&&im.needPPT?'checked':''}> 需要（按每页支撑 1.5~2 分钟估算页数）</label>`)}</div>
+  <div class="form-actions">
+    <button type="button" class="btn btn-ghost" data-action="close-modal">取消</button>
+    <button type="submit" class="btn btn-primary">${im?'保存任务':'新建任务'}</button>
+  </div></form>`;
+}
+function buildImitPrompt(im){
+  const words=im.words||Math.max(200,Math.round((im.duration||6)*220));
+  const pages=Math.max(1,Math.ceil((im.duration||6)/1.75));
+  const fw=db.fanwen.find(x=>x.id===im.fanwenId);
+  return `【角色定位】
+你是一位深耕党建教学多年的党课讲师，理论功底扎实、讲课经验丰富，善于把党的创新理论讲深讲透讲活，文风庄重有力。
+
+【核心任务】
+请模仿所提供的「范文」的结构与文风，撰写一篇可直接用于现场讲授的党课讲稿。
+
+【讲稿信息】
+· 题目：（待定，请给出一个醒目、对仗或引经据典的题目）
+· 主题：${im.theme||''}
+· 场合：${im.occasion||'党课讲台'}
+· 受众：${im.audience||'党校学员'}
+· 时长：约${im.duration||6}分钟 → 正文约${words}字（讲授语速约220字/分钟）
+${im.needPPT?`· 配套课件：建议约${pages}页，每页支撑1.5~2分钟讲授。`:''}
+【模仿对象 · 范文】
+以下为本篇讲稿需模仿的范文，请先精读，重点提炼其：①整体结构框架 ②开头与结尾的写法 ③语言节奏与句式 ④修辞与引用习惯。
+${fw?`· 范文标题：${fw.title}${fw.note?'（'+fw.note+'）':''}
+· 范文全文：
+${fw.content||''}`:'· 范文：请自备范文原文粘贴于此，或说明范文来源。'}
+【结构要求（模仿范文）】
+范文采用「总分总」结构（自动分析：有无小标题、按开篇点题→主体展开→结尾升华组织），请照搬这一骨架：
+1. 开场部分（约15%）：采用「引用式/点题式」开篇（若任务要求不引用，则改为点题式或场景式开篇，功能等价：快速立起主题），调动听众注意力；
+2. 主体部分（约70%）：分3~4个板块展开，每个板块遵循"观点先行 → 说理阐释 → 案例/数据佐证 → 小结回扣主题"的节奏；
+3. 收束部分（约15%）：采用「号召式」收尾，呼应开头，升华主题，落到行动号召。
+（若范文有更细的小标题层级或过渡句，请保留其层级节奏与过渡方式）
+
+【语言风格要求（模仿范文）】
+· 整体风格：庄重有力
+· 句式节奏：长短结合
+· 修辞手法：长句思辨
+· 用词气质：适度呼应范文高频词，但不生硬堆砌
+· 口语与书面比例：三七开（书面七成、口语三成），既显理论深度，又像真人讲课，避免念文件腔
+· 段落习惯：小标题引领或观点句领起，段落长短错落有致
+
+【内容配比】
+理论阐述55% / 案例故事20% / 数据支撑12% / 权威引用10%（合计100%）。
+每个板块内同样遵循该配比逻辑，先讲道理、再举例子、用数据说话、以权威表述压舱。
+
+【政治规范（红线，必须遵守）】
+1. 引用习近平总书记重要讲话、党的二十大报告及党中央文件，必须使用权威原文表述，不得改写、不得杜撰；
+2. 不编造领导人讲话、不虚构党史细节、不伪造数据；涉及数字一律以官方公开口径为准；
+3. 政治术语使用规范表述（如"习近平新时代中国特色社会主义思想""中国式现代化""高质量发展"等），不使用网络流行语、不恰当的类比或戏谑表达；
+4. 整体导向与党中央保持高度一致，符合中央精神，适合现场讲授。
+
+【额外要求】
+想学习这篇文章的结构写作手法，并按照这个风格依托我已有的底稿仿写一篇高度类似风格的。改稿时注意不要有引用，要全是自己的观点。
+
+【输出要求】
+1. 直接输出完整讲稿正文，含题目与小标题，正文约${words}字，层次分明，可直接照稿讲授；
+2. 语言自然如真人讲话，避免"首先/其次/最后"式的机械罗列和AI腔，少用"总之""综上所述"这类套话；
+3. 如需我先列写作提纲、提供金句库或案例素材，请单独说明，不要混在正文里。`;
+}
+function imitPromptForm(im){
+  return `<div class="tiny muted" style="margin-bottom:10px">这是「到豆包开工」入口：已按范文结构与你的任务要素生成专业模仿提示词（含范文全文），复制后在豆包粘贴即可开始仿写。</div>
+  ${fld('开工提示词',`<textarea id="dbPrompt" readonly style="min-height:260px;font-size:12.5px;line-height:1.75">${esc(buildImitPrompt(im))}</textarea>`)}
+  <div class="form-actions">
+    <button type="button" class="btn btn-ghost" data-action="close-modal">取消</button>
+    <button type="button" class="btn" data-action="copy-prompt">${ic('refresh')}复制提示词</button>
+    <button type="button" class="btn btn-primary" data-action="open-doubao">打开豆包 ›</button>
+  </div>`;
 }
 
 /* ============================================================
@@ -2792,6 +2930,32 @@ document.addEventListener('click',e=>{
       const w=db.writings.find(x=>x.id===id());
       if(w)openModal('到豆包开工 · '+w.title,doubaoWritingForm(w));
       break}
+    case 'q-fanwen':openModal('收录范文 · 写作模仿',fanwenForm(null));break;
+    case 'edit-fanwen':{
+      const fw=db.fanwen.find(x=>x.id===id());
+      if(fw)openModal('编辑范文 · '+fw.title,fanwenForm(fw));
+      break}
+    case 'del-fanwen':{
+      const fw=db.fanwen.find(x=>x.id===id());
+      if(fw&&confirm('删除范文《'+fw.title+'》？关联的模仿任务将显示为「未关联范文」，任务本身保留。')){
+        db.fanwen=db.fanwen.filter(x=>x.id!==fw.id);save();render();toast('已删除范文');
+      }
+      break}
+    case 'q-imit':openModal('新建模仿任务 · 写作模仿',imitForm(null));break;
+    case 'edit-imit':{
+      const im=db.imits.find(x=>x.id===id());
+      if(im)openModal('编辑模仿任务 · '+im.title,imitForm(im));
+      break}
+    case 'del-imit':{
+      const im=db.imits.find(x=>x.id===id());
+      if(im&&confirm('删除模仿任务「'+(im.title||im.theme||'未命名')+'」？')){
+        db.imits=db.imits.filter(x=>x.id!==im.id);save();render();toast('已删除任务');
+      }
+      break}
+    case 'doubao-imit':{
+      const im=db.imits.find(x=>x.id===id());
+      if(im)openModal('到豆包开工 · 模仿写作',imitPromptForm(im));
+      break}
     case 'copy-prompt':{
       const ta=document.getElementById('dbPrompt');
       const txt=ta?ta.value:'';
@@ -2958,6 +3122,18 @@ document.addEventListener('submit',e=>{
       const n=v('name');
       if(db.sources.some(s=>s.name===n)){toast('该来源已在库中');return;}
       db.sources.push({name:n,kind:v('kind')});save();closeModal();render();toast('来源已添入');
+      break}
+    case 'fanwen':{
+      const fw=db.fanwen.find(x=>x.id===form.dataset.editing)||{};
+      const obj={id:fw.id||uid(),title:v('title'),note:v('note'),content:v('content'),created:fw.created||todayISO()};
+      if(fw.id){Object.assign(fw,obj)}else{db.fanwen.push(obj)}
+      save();closeModal();render();toast(fw.id?'范文已保存':'范文已收录');
+      break}
+    case 'imit':{
+      const im=db.imits.find(x=>x.id===form.dataset.editing)||{};
+      const obj={id:im.id||uid(),title:v('title'),theme:v('theme'),fanwenId:v('fanwenId')||null,occasion:v('occasion'),audience:v('audience'),duration:v('duration')?Number(v('duration')):null,words:v('words')?Number(v('words')):null,needPPT:!!(form.querySelector('[name="needPPT"]')||{}).checked,created:im.created||todayISO()};
+      if(im.id){Object.assign(im,obj)}else{db.imits.push(obj)}
+      save();closeModal();render();toast(im.id?'模仿任务已保存':'模仿任务已新建');
       break}
   }
 });
