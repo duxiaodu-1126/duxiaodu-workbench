@@ -1591,7 +1591,7 @@ function renderWriting(tab){
       <button class="btn ${tabNow==='mat'?'btn-primary':'btn-ghost'}" data-action="write-tab" data-v="mat">学习素材采集</button>
       <button class="btn ${tabNow==='imitate'?'btn-primary':'btn-ghost'}" data-action="write-tab" data-v="imitate">模仿写作</button>
       <span style="flex:1"></span>
-      ${tabNow==='doc'?`<button class="btn btn-primary" data-action="q-writing">${ic('plus')}新建文稿</button>`:tabNow==='task'?`<button class="btn btn-primary" data-action="q-task">${ic('plus')}新建微课 / 宣讲</button>`:tabNow==='mat'?`<button class="btn btn-primary" data-action="q-material">${ic('plus')}收一条素材</button>`:`<button class="btn btn-primary" data-action="q-fanwen">${ic('plus')}收录范文</button>`}
+      ${tabNow==='doc'?`<button class="btn btn-primary" data-action="q-writing">${ic('plus')}新建文稿</button>`:tabNow==='task'?`<button class="btn btn-primary" data-action="q-task">${ic('plus')}新建微课 / 宣讲</button>`:tabNow==='mat'?`<button class="btn btn-primary" data-action="q-material">${ic('plus')}收一条素材</button>`:`<button class="btn btn-primary" data-action="q-fanwen">${ic('plus')}收录范文</button><button class="btn btn-ghost" data-action="batch-import" data-target="fanwen" title="批量导入 .txt/.md/.docx 文件，每个文件生成一篇范文">${ic('plus')}批量导入范文</button>`}
     </div>
     ${tabNow==='doc'?`
       <div class="grid grid-2">
@@ -1747,6 +1747,7 @@ function fanwenForm(fw){
   return `<form data-form="fanwen"><div class="tiny muted" style="margin-bottom:10px">收录你想模仿的范文原文（报刊理论文章、专家讲稿、领导讲话皆可）。生成提示词时会整篇附给豆包精读。</div>
   ${fld('范文标题',`<input name="title" placeholder="如：建设便携高效的农业社会化服务体系" value="${esc(fw&&fw.title||'')}" required>`)}
   ${fld('备注（可选）',`<input name="note" placeholder="如：江西日报理论版 · 总分总 · 无小标题" value="${esc(fw&&fw.note||'')}">`)}
+  ${fld('导入文件（.txt/.md/.docx，可多选；单个文件自动读入下方正文，多个文件批量建范文）',`<input type="file" accept=".txt,.md,.docx,.doc,.pdf" multiple onchange="handleImport(this,'fanwen')" style="font-size:12px">`)}
   ${fld('范文正文',`<textarea name="content" style="min-height:220px" placeholder="粘贴范文全文……" required>${esc(fw&&fw.content||'')}</textarea>`)}
   <div class="form-actions">
     <button type="button" class="btn btn-ghost" data-action="close-modal">取消</button>
@@ -2078,6 +2079,113 @@ function dbWritingPromptSync(){
 function fallbackCopy(txt,cb){
   try{const ta=document.createElement('textarea');ta.value=txt;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();cb&&cb();}catch(e){toast('复制失败，请手动全选复制');}
 }
+
+/* ============================================================
+   文件导入（范文库 / 好课库 通用）· 单个填入弹窗 · 多个批量建记录
+   支持 .txt / .md 直接读；.docx 用原生 ZIP 解析 + DecompressionStream 解压
+   ============================================================ */
+async function handleImport(input,target){
+  const files=input&&input.files?Array.from(input.files):[];
+  if(!files.length)return;
+  try{
+    if(files.length===1){
+      const txt=await readImportText(files[0]);
+      if(txt===null){input.value='';return;}
+      const sel=target==='fanwen'?'#modal [name="content"]':'#modal [name="transcript"]';
+      const ta=document.querySelector(sel);
+      if(ta){ta.value=txt;toast('已读入「'+files[0].name+'」，检查后可保存');}
+      else{toast('请先打开收录弹窗再导入');}
+    }else{
+      const ok=confirm('将批量导入 '+files.length+' 个文件，每个文件生成一条'+(target==='fanwen'?'范文':'好课')+'记录。确定继续？');
+      if(!ok){input.value='';return;}
+      let done=0,skip=0;
+      for(const f of files){
+        const txt=await readImportText(f);
+        if(txt===null){skip++;continue;}
+        const base=f.name.replace(/\.(txt|md|docx|doc|pdf)$/i,'');
+        if(target==='fanwen'){
+          db.fanwen.push({id:uid(),title:base,note:'批量导入 · '+f.name,content:txt,created:todayISO()});
+        }else{
+          db.exemplars.push({id:uid(),title:base,teacher:'',type:'录音逐字稿',course:'',transcript:txt,pptNotes:'',analysis:'',tags:'',created:todayISO()});
+        }
+        done++;
+      }
+      save();closeModal();render();
+      toast('批量导入完成：新增 '+done+' 条'+(skip?'，跳过 '+skip+' 条（不支持的格式）':''));
+    }
+  }catch(e){toast('导入出错：'+e.message);}
+  input.value='';
+}
+async function readImportText(file){
+  const name=(file.name||'').toLowerCase();
+  try{
+    if(/\.(txt|md)$/.test(name))return await file.text();
+    if(/\.docx$/.test(name))return await readDocxText(await file.arrayBuffer());
+    if(/\.doc$/.test(name)){toast('「'+file.name+'」是旧版 .doc 格式，请另存为 .docx 或 .txt 后导入');return null;}
+    if(/\.pdf$/.test(name)){toast('「'+file.name+'」为 PDF，请先转成文本或直接粘贴内容');return null;}
+    toast('「'+file.name+'」暂不支持，仅支持 .txt / .md / .docx');return null;
+  }catch(e){toast('读取「'+file.name+'」失败：'+e.message);return null;}
+}
+async function readDocxText(buf){
+  /* 极简 ZIP 解析（无三方库）：EOCD → 中央目录 → word/document.xml → deflate-raw 解压 */
+  const u8=new Uint8Array(buf);
+  const dv=new DataView(buf);
+  if(buf.byteLength<22||u8[0]!==0x50||u8[1]!==0x4b)throw new Error('不是有效的 docx（ZIP）文件');
+  let eocd=-1;
+  const min=Math.max(0,buf.byteLength-22-65536);
+  for(let i=buf.byteLength-22;i>=min;i--){
+    if(u8[i]===0x50&&u8[i+1]===0x4b&&u8[i+2]===0x05&&u8[i+3]===0x06){eocd=i;break;}
+  }
+  if(eocd<0)throw new Error('docx 结构异常（未找到目录）');
+  const cdCount=dv.getUint16(eocd+10,true);
+  const cdOffset=dv.getUint32(eocd+16,true);
+  let entry=null,p=cdOffset;
+  for(let n=0;n<cdCount;n++){
+    if(p+46>buf.byteLength||u8[p]!==0x50||u8[p+1]!==0x4b||u8[p+2]!==0x01||u8[p+3]!==0x02)break;
+    const method=dv.getUint16(p+10,true);
+    const csize=dv.getUint32(p+20,true);
+    const nl=dv.getUint16(p+28,true);
+    const el=dv.getUint16(p+30,true);
+    const cl=dv.getUint16(p+32,true);
+    const lho=dv.getUint32(p+42,true);
+    let name='';
+    for(let i=0;i<nl;i++)name+=String.fromCharCode(u8[p+46+i]);
+    if(name==='word/document.xml'){
+      const lNameLen=dv.getUint16(lho+26,true);
+      const lExtraLen=dv.getUint16(lho+28,true);
+      const dataStart=lho+30+lNameLen+lExtraLen;
+      entry={comp:u8.slice(dataStart,dataStart+csize),method,csize};
+      break;
+    }
+    p+=46+nl+el+cl;
+  }
+  if(!entry)throw new Error('docx 中未找到正文（word/document.xml）');
+  let xml;
+  if(entry.method===0){
+    xml=new TextDecoder('utf-8').decode(entry.comp);
+  }else if(entry.method===8){
+    if(typeof DecompressionStream==='undefined')throw new Error('当前浏览器不支持 docx 解压，请用 Chrome 或转成 .txt');
+    const ds=new DecompressionStream('deflate-raw');
+    const stream=new Blob([entry.comp]).stream().pipeThrough(ds);
+    xml=new TextDecoder('utf-8').decode(await new Response(stream).arrayBuffer());
+  }else{
+    throw new Error('docx 使用了不支持的压缩方式');
+  }
+  const paras=[];
+  const pRe=/<w:p[ >][\s\S]*?<\/w:p>/g;
+  let pm;
+  while((pm=pRe.exec(xml))){
+    let line='';
+    const tRe=/<w:t[^>]*>([\s\S]*?)<\/w:t>/g;
+    let tm;
+    while((tm=tRe.exec(pm[0])))line+=tm[1];
+    line=line.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&apos;/g,"'");
+    if(line.trim())paras.push(line);
+  }
+  const txt=paras.join('\n');
+  if(!txt)throw new Error('文档中未提取到文字内容');
+  return txt;
+}
 function exportICS(){
   const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//杜小杜工作台//CN','CALSCALE:GREGORIAN'];
   const escTxt=s=>String(s||'').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\n/g,'\\n');
@@ -2103,8 +2211,13 @@ function exportICS(){
 function renderExemplars(){
   const list=db.exemplars.slice().sort((a,b)=>(b.created||'').localeCompare(a.created||''));
   $('#content').innerHTML=`
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-head"><div class="card-title"><span class="tick"></span>习课 · 用法</div></div>
+      <div class="tiny muted" style="line-height:1.8">三步走：① 把觉得上得好的课程资料收进来（录音逐字稿、课件要点，可批量导入 .txt/.md/.docx 文件）→ ② 点「到豆包分析」生成 10 维度备课思路提炼 → ③ 把提炼结果回填保存，模仿借鉴其备课技巧与精华。</div>
+    </div>
     <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
       <button class="btn btn-primary" data-action="new-exemplar">${ic('plus')}收录一门好课</button>
+      <button class="btn btn-ghost" data-action="batch-import" data-target="exemplar" title="批量导入 .txt/.md/.docx 文件，每个文件生成一条好课记录">${ic('plus')}批量导入资料</button>
       <span class="tiny muted">共 ${list.length} 门 · 录音逐字稿 / 课件 / 备课思路分析，可链接豆包深度学习</span>
     </div>
     ${list.length?`<div class="grid grid-2">${list.map(e=>`
@@ -2137,6 +2250,7 @@ function exemplarForm(e){
     '<div class="fld-row">'+fld('课程名称','<input name="title" value="'+esc(e?title:'')+'" placeholder="如：习近平新时代中国特色社会主义思想概论">')+'</div>'+
     '<div class="fld-row">'+fld('授课人','<input name="teacher" value="'+esc(e?e.teacher:'')+'" placeholder="授课老师姓名">')+fld('资料类型','<select name="type"><option value="录音逐字稿">录音逐字稿</option><option value="课件">课件</option><option value="逐字稿+课件">逐字稿+课件</option><option value="其他">其他</option></select>')+'</div>'+
     fld('关联专题课（可选）','<select name="course"><option value="">不关联</option>'+COURSES.map(c=>'<option value="'+esc(c)+'">'+esc(c)+'</option>').join('')+'</select>')+
+    fld('导入文件（.txt/.md/.docx，可多选；单个文件自动读入下方逐字稿，多个文件批量建记录）','<input type="file" accept=".txt,.md,.docx,.doc,.pdf" multiple onchange="handleImport(this,\'exemplar\')" style="font-size:12px">')+
     fld('录音逐字稿（粘贴文本，可长）','<textarea name="transcript" rows="6" style="font-size:12.5px;line-height:1.7" placeholder="把录音转写的逐字稿粘贴到这里，越完整分析越精准…">'+esc(e?e.transcript:'')+'</textarea>')+
     fld('课件要点 / PPT内容摘要','<textarea name="pptNotes" rows="4" style="font-size:12.5px;line-height:1.7" placeholder="粘贴课件的文字内容、每页要点、案例数据等…">'+esc(e?e.pptNotes:'')+'</textarea>')+
     fld('备课思路分析（豆包分析后回填，也可手动写）','<textarea name="analysis" rows="3" style="font-size:12.5px;line-height:1.7" placeholder="点「到豆包分析」后自动生成，也可以手动记录你的学习心得…">'+esc(e?e.analysis:'')+'</textarea>')+
@@ -2931,6 +3045,15 @@ document.addEventListener('click',e=>{
       if(w)openModal('到豆包开工 · '+w.title,doubaoWritingForm(w));
       break}
     case 'q-fanwen':openModal('收录范文 · 写作模仿',fanwenForm(null));break;
+    case 'batch-import':{
+      const target=t.getAttribute('data-target')||'fanwen';
+      const inp=document.createElement('input');
+      inp.type='file';inp.accept='.txt,.md,.docx';inp.multiple=true;
+      inp.style.display='none';
+      inp.onchange=()=>handleImport(inp,target);
+      document.body.appendChild(inp);inp.click();
+      setTimeout(()=>{try{document.body.removeChild(inp);}catch(e){}},30000);
+      break}
     case 'edit-fanwen':{
       const fw=db.fanwen.find(x=>x.id===id());
       if(fw)openModal('编辑范文 · '+fw.title,fanwenForm(fw));
