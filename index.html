@@ -2886,19 +2886,22 @@ function renderNotes(){
 function renderTimeline(filter){
   const f=filter||'';
   const items=[];
-  db.projects.forEach(p=>{(p.steps||[]).forEach(s=>items.push({date:s.due,mod:p.module,cls:s.done?'t-done':'',title:esc(p.title)+' · '+esc(s.title),done:s.done}))});
+  db.projects.forEach(p=>{(p.steps||[]).forEach(s=>{if(s.due)items.push({date:s.due,mod:p.module,cls:s.done?'t-done':'',title:esc(p.title)+' · '+esc(s.title),done:s.done})})});
   db.projects.forEach(p=>{if(p.deadline&&p.status==='active')items.push({date:p.deadline,mod:p.module,cls:'t-deadline',title:esc(p.title)+' · 项目截止'})});
   db.school.forEach(c=>items.push({date:c.date,mod:'class',cls:'t-course',title:'在校 · '+esc(c.course)+' · '+esc(c.className)+' · '+fmtClock(c.start)+'–'+fmtClock(c.end)}));
   db.external.forEach(c=>items.push({date:c.date,mod:'class',cls:'t-course',title:'外出 · '+esc(c.course)+' · '+esc(c.org)+' · '+fmtClock(c.start)+'–'+fmtClock(c.end)}));
-  db.trials.forEach(x=>items.push({date:x.applyDate,mod:'trial',cls:x.passed?'t-done':'t-course',title:'试讲 · '+esc(x.course)+' · 第 '+(x.attempt||1)+' 次',done:x.passed}));
-  db.tasks.forEach(k=>items.push({date:k.date,mod:'writing',cls:'t-course',title:(k.kind==='micro'?'微课':'宣讲')+' · '+esc(k.title)}));
-  db.trains.forEach(k=>{if(k.dateStart)items.push({date:k.dateStart,mod:'writing',cls:'t-course',title:'培训 · '+esc(k.name)+(k.location?' @'+esc(k.location):'')+(k.dateEnd?'（'+fmtCN(k.dateStart)+'–'+fmtCN(k.dateEnd)+'）':'')})});
-  db.awards.forEach(a=>{if(a.date)items.push({date:a.date,mod:'writing',cls:'t-done',title:'获奖 · '+esc(a.title)+(a.level?'（'+esc(a.level)+'）':''),done:true})});
-  db.publishes.forEach(p=>{if(p.date)items.push({date:p.date,mod:'writing',cls:'t-done',title:'发文 · '+esc(p.title)+' @'+esc(p.platform||''),done:true})});
-  db.evals.forEach(e=>items.push({date:e.date,mod:'evaluate',cls:'t-course',title:'听评课 · '+esc(e.teacher)+'《'+esc(e.course)+'》'}));
+  db.trials.forEach(x=>{if(x.applyDate)items.push({date:x.applyDate,mod:'trial',cls:x.passed?'t-done':'t-course',title:'试讲 · '+esc(x.course)+' · 第 '+(x.attempt||1)+' 次',done:x.passed})});
+  db.tasks.forEach(k=>{if(k.date)items.push({date:k.date,mod:'writing',cls:'t-course',title:(k.kind==='micro'?'微课':'宣讲')+' · '+esc(k.title)})});
+  /* 培训/获奖/发文为「荣誉台账」，不混入主时间线，点「荣誉台账」过滤查看 */
+  db.trains.forEach(k=>{if(k.dateStart)items.push({date:k.dateStart,mod:'ledger',cls:'t-course',title:'培训 · '+esc(k.name)+(k.location?' @'+esc(k.location):'')+(k.dateEnd?'（'+fmtCN(k.dateStart)+'–'+fmtCN(k.dateEnd)+'）':'')})});
+  db.awards.forEach(a=>{if(a.date)items.push({date:a.date,mod:'ledger',cls:'t-done',title:'获奖 · '+esc(a.title)+(a.level?'（'+esc(a.level)+'）':''),done:true})});
+  db.publishes.forEach(p=>{if(p.date)items.push({date:p.date,mod:'ledger',cls:'t-done',title:'发文 · '+esc(p.title)+' @'+esc(p.platform||''),done:true})});
+  db.evals.forEach(e=>{if(e.date)items.push({date:e.date,mod:'evaluate',cls:'t-course',title:'听评课 · '+esc(e.teacher)+'《'+esc(e.course)+'》'})});
   db.notes.forEach(n=>{if(n.date)items.push({date:n.date,mod:'notes',cls:n.status==='done'?'t-done':'t-course',title:(n.cat||autoNoteCat(n.text))+' · '+esc(n.text),done:n.status==='done',ncat:n.cat||autoNoteCat(n.text)})});
   db.writings.forEach(w=>{if(w.deadline)items.push({date:w.deadline,mod:'writing',cls:'t-deadline',title:esc(w.title)+' · 文稿截止'})});
   const sorted=items.filter(i=>{
+    if(f==='ledger')return i.mod==='ledger';
+    if(i.mod==='ledger')return false;
     if(!f)return true;
     if(f==='other')return i.mod==='notes'&&['其他工作','日常事务'].includes(i.ncat);
     return i.mod===f;
@@ -2909,10 +2912,11 @@ function renderTimeline(filter){
     const ym=it.date.slice(0,7);
     if(ym!==curMonth){curMonth=ym;const [yy,mm]=ym.split('-');html+=`<div class="tl-month">${yy}年${+mm}月</div>`}
     const late=it.date<t&&!it.done;
-    html+=`<div class="tl-item ${it.cls}" data-action="tl-go" data-mod="${it.mod}" style="cursor:pointer" title="点此进入「${MODULES[it.mod]?MODULES[it.mod].name:it.mod}」继续工作">
+    const modName=it.mod==='ledger'?'写作 · 荣誉台账':(MODULES[it.mod]?MODULES[it.mod].name:it.mod);
+    html+=`<div class="tl-item ${it.cls}" data-action="tl-go" data-mod="${it.mod}" style="cursor:pointer" title="点此进入「${modName}」继续工作">
       <div class="tl-date">${fmtCN(it.date)} · 星期${wkCN(it.date)}${late?' <span class="wine">已过</span>':''}</div>
       <div class="tl-title">${it.title}</div>
-      <div class="tiny muted" style="margin-top:2px">进入${MODULES[it.mod]?MODULES[it.mod].name:it.mod} ›</div>
+      <div class="tiny muted" style="margin-top:2px">进入${modName} ›</div>
     </div>`;
   });
   $('#content').innerHTML=`
@@ -2920,6 +2924,7 @@ function renderTimeline(filter){
       <button class="btn ${!f?'btn-primary':'btn-ghost'}" data-action="tl-filter" data-v="">全部</button>
       ${SIX.map(m=>`<button class="btn ${f===m?'btn-primary':'btn-ghost'}" data-action="tl-filter" data-v="${m}">${MODULES[m].name}</button>`).join('')}
       <button class="btn ${f==='other'?'btn-primary':'btn-ghost'}" data-action="tl-filter" data-v="other">其他日常工作</button>
+      <button class="btn ${f==='ledger'?'btn-primary':'btn-ghost'}" data-action="tl-filter" data-v="ledger">荣誉台账</button>
     </div>
     <div class="card"><div class="tl">${html||`<div class="empty"><div class="seal-line">序</div>尚无排期。新建项目时，书桌会自动拆解步骤、排出日期，汇聚于此。</div>`}</div></div>`;
 }
@@ -3628,7 +3633,10 @@ document.addEventListener('click',e=>{
     case 'cal-next':{clsView.ym.m++;if(clsView.ym.m>11){clsView.ym.m=0;clsView.ym.y++}render();break}
     case 'write-tab':go('writing?tab='+t.getAttribute('data-v'));break;
     case 'tl-filter':go('timeline?f='+t.getAttribute('data-v'));break;
-    case 'tl-go':go(t.getAttribute('data-mod')==='other'?'notes':t.getAttribute('data-mod'));break;
+    case 'tl-go':{
+      const dm=t.getAttribute('data-mod');
+      go(dm==='other'?'notes':dm==='ledger'?'writing':dm);
+      break}
     case 'cal-pick':{calView.day=t.getAttribute('data-day');render();break}
     case 'cal-prev':{calView.ym.m--;if(calView.ym.m<0){calView.ym.m=11;calView.ym.y--}render();break}
     case 'cal-next':{calView.ym.m++;if(calView.ym.m>11){calView.ym.m=0;calView.ym.y++}render();break}
