@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>杜小杜的知识工作台</title>
 <meta name="description" content="杜小杜的知识工作台 —— 数字化私人书房与编辑工作室">
-<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@500;600;700;900&family=Noto+Sans+SC:wght@300;400;500;700&display=swap">
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@500;600;700;900&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@500;600;700;900&family=Noto+Sans+SC:wght@300;400;500;700&display=swap"></noscript>
 <style>
 /* ============================================================
    杜小杜的知识工作台 · 设计令牌
@@ -798,6 +799,17 @@ function seed(){
 
 let db=null;
 /* —— 数据安全层 · 三级防丢：主数据 + 影子备份 + 每日快照（程序更新永不触碰这些键）—— */
+/* 数据结构保障：云端旧数据/备份恢复后，补齐缺失字段，防止渲染因缺数组崩溃 */
+function ensureSchema(d){
+  if(!d||typeof d!=='object')return d||{};
+  const arrs=['school','external','evals','notes','trials','tasks','ideas','writings','materials','sources','exemplars','fanwen','imits','trains','awards','publishes','finals','projects','courseLib'];
+  arrs.forEach(k=>{if(!Array.isArray(d[k]))d[k]=[];});
+  if(typeof d.feedDone!=='object'||d.feedDone===null)d.feedDone={};
+  if(typeof d.profile!=='object'||d.profile===null)d.profile={name:'杜小杜',role:'铁路党校 · 教学科研'};
+  if(typeof d.gitee!=='object'||d.gitee===null)d.gitee={};
+  (d.projects||[]).forEach(ensureSteps);
+  return d;
+}
 const KEY_MAIN='duxiaodu_workbench_v2';
 const KEY_SHADOW='duxiaodu_workbench_v2_shadow';
 const KEY_DAILY_P='duxiaodu_workbench_v2_daily_';
@@ -837,19 +849,7 @@ if(!db){
     }
   }catch(e){}
 }
-if(!db.profile)db.profile={name:'杜小杜'};
-if(!db.materials)db.materials=[];
-if(!db.courseLib)db.courseLib=[];
-if(!db.school)db.school=[];
-if(!db.external)db.external=[];
-if(!db.notes)db.notes=[];
-if(!db.feedDone)db.feedDone={};
-if(!db.evals)db.evals=[];
-if(!db.trials)db.trials=[];
-if(!db.tasks)db.tasks=[];
-if(!db.exemplars)db.exemplars=[];
-if(!db.fanwen)db.fanwen=[];
-if(!db.imits)db.imits=[];
+ensureSchema(db); /* 统一补齐结构：旧数据/快照/影子恢复后缺失的数组全部补上，防止渲染崩溃 */
 let storageOK=true;
 try{localStorage.setItem(KEY_MAIN+'_probe','1');localStorage.removeItem(KEY_MAIN+'_probe');}catch(e){storageOK=false}
 /* 保存 = 主数据 + 影子备份 + 每日快照 三层落盘 + 可选云端同步 */
@@ -900,24 +900,27 @@ function giteePull(cb){
   if(!cfg.enabled||!cfg.token||!cfg.owner||!cfg.repo){_cloudReady=true;cb&&cb({ok:false,msg:'未配置云端'});return;}
   const path='backup/duxiaodu-workbench-data.json';
   const api='https://gitee.com/api/v5/repos/'+encodeURIComponent(cfg.owner)+'/'+encodeURIComponent(cfg.repo)+'/contents/'+path;
-  fetch(api+'?access_token='+encodeURIComponent(cfg.token)).then(r=>{
+  const ctrl=typeof AbortController!=='undefined'?new AbortController():null;
+  const timer=setTimeout(()=>{try{ctrl&&ctrl.abort();}catch(e){}} ,8000); /* 拉取超时保护，防止打开卡顿 */
+  fetch(api+'?access_token='+encodeURIComponent(cfg.token),ctrl?{signal:ctrl.signal}:{}).then(r=>{
     if(r.status===404){_cloudReady=true;cb&&cb({ok:false,msg:'云端暂无备份'});return null;}
     return r.json();
   }).then(j=>{
+    clearTimeout(timer);
     _cloudReady=true;
     if(!j||!j.content){cb&&cb({ok:false,msg:'云端数据为空'});return;}
     try{
       const raw=decodeURIComponent(escape(atob(j.content.replace(/\s/g,''))));
       const cloudData=JSON.parse(raw);
+      if(!cloudData||typeof cloudData!=='object'||!Array.isArray(cloudData.school)||!Array.isArray(cloudData.external)){cb&&cb({ok:false,msg:'云端数据不完整，已保留本地数据'});return;} /* 结构异常不覆盖，走降级 */
+      ensureSchema(cloudData);
       const localCount=countRecords(db);
       const cloudCount=countRecords(cloudData);
       const cloudNewer=cloudData._savedAt&&(!db._savedAt||cloudData._savedAt>db._savedAt);
       const localEmpty=localCount===0||(localCount<=5&&cloudCount>20); /* 本地几乎为空时强制从云端恢复 */
-      if(cloudCount>localCount||cloudNewer||localEmpty){
+      if((cloudCount>localCount||cloudNewer||localEmpty)&&!(localCount>cloudCount&&db._savedAt&&db._savedAt>(cloudData._savedAt||0))){
         Object.assign(db,cloudData);
-        if(!db.exemplars)db.exemplars=[];
-        if(!db.evals)db.evals=[];
-        if(!db.courseLib)db.courseLib=[];
+        ensureSchema(db);
         lsSet(KEY_MAIN,JSON.stringify(db));
         lsSet(KEY_SHADOW,JSON.stringify(db));
         cb&&cb({ok:true,msg:'已从云端恢复 '+cloudCount+' 条记录',restored:true});
@@ -925,7 +928,7 @@ function giteePull(cb){
         cb&&cb({ok:true,msg:'本地数据已是最新',restored:false});
       }
     }catch(e){cb&&cb({ok:false,msg:'云端数据解析失败：'+String(e)});}
-  }).catch(e=>{_cloudReady=true;cb&&cb({ok:false,msg:'云端拉取失败：'+String(e.message||e)});});
+  }).catch(e=>{clearTimeout(timer);_cloudReady=true;cb&&cb({ok:false,msg:'云端拉取失败：'+String(e.message||e)});});
 }
 function cloudSyncNow(cb){
   const cfg=giteeCfg();
@@ -3968,7 +3971,7 @@ document.addEventListener('click',e=>{
 document.addEventListener('change',e=>{
   if(e.target&&e.target.id==='importFile'){
     const f=e.target.files&&e.target.files[0];
-    if(f){const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d||typeof d!=='object'||!Array.isArray(d.courseLib))throw new Error('bad');db=d;if(!db.notes)db.notes=[];if(!db.feedDone)db.feedDone={};if(!db.evals)db.evals=[];if(!db.materials)db.materials=[];if(!db.school)db.school=[];if(!db.external)db.external=[];if(!db.trials)db.trials=[];if(!db.tasks)db.tasks=[];if(!db.ideas)db.ideas=[];if(!db.writings)db.writings=[];if(!db.sources)db.sources=[];if(!db.exemplars)db.exemplars=[];if(!db.fanwen)db.fanwen=[];if(!db.imits)db.imits=[];if(!db.trains)db.trains=[];if(!db.awards)db.awards=[];if(!db.publishes)db.publishes=[];if(!db.finals)db.finals=[];db.projects.forEach(ensureSteps);save();render();toast('备份已恢复：'+db.school.length+' 条在校、'+db.external.length+' 条外出、'+db.notes.length+' 条随手记');}catch(err){toast('备份文件无法识别，未做任何改动');}};r.readAsText(f);}
+    if(f){const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d||typeof d!=='object'||!Array.isArray(d.courseLib))throw new Error('bad');ensureSchema(d);db=d;ensureSchema(db);save();render();toast('备份已恢复：'+db.school.length+' 条在校、'+db.external.length+' 条外出、'+db.notes.length+' 条随手记');}catch(err){toast('备份文件无法识别，未做任何改动');}};r.readAsText(f);}
     e.target.value='';
   }
   /* 批量导入授课明细 */
