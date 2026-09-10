@@ -408,6 +408,7 @@ const fmtClock=s=>s||'--';
    ============================================================ */
 const MODULES={
   today:{name:'案头',vol:'',icon:'desk'},
+  report:{name:'区间汇总',vol:'',icon:'search'},
   prep:{name:'备课',vol:'卷一',icon:'pen'},
   'class':{name:'上课',vol:'卷二',icon:'clock'},
   research:{name:'科研',vol:'卷三',icon:'book'},
@@ -1054,7 +1055,7 @@ window.addEventListener('hashchange',render);
    ============================================================ */
 function renderNav(){
   const groups=[
-    {kicker:'案头',items:['today']},
+    {kicker:'案头',items:['today','report']},
     {kicker:'书卷 · 七录',items:['prep','class','research','trial','evaluate','writing','exemplars']},
     {kicker:'工具',items:['notes','ideas','timeline','search']},
   ];
@@ -1355,6 +1356,124 @@ function buildAchievements(){
   if(awards.length)awards.forEach(k=>L.push('· '+fmtCN(k.date)+'「'+k.title+'」'+(k.level?'（'+k.level+'）':'')+(k.content?' · '+k.content:'')));
   else L.push('· 暂无获奖记录');
   return L.join('\n');
+}
+/* ============================================================
+   区间汇总：任选起止日期，一键梳理全类别工作，供周/月/年小结
+   ============================================================ */
+let rangeView={from:'',to:''};
+const wt=s=>{const t=String(s||'').trim();if(t.indexOf('《')===0&&t.slice(-1)==='》')return t;return '《'+t+'》';};
+function quarterStart(t){const y=t.slice(0,4);const m=Number(t.slice(5,7));const qm=Math.floor((m-1)/3)*3+1;return y+'-'+String(qm).padStart(2,'0')+'-01';}
+function buildRangeSummary(from,to){
+  if(!from||!to){from=wkStart();to=todayISO();}
+  if(from>to){const tmp=from;from=to;to=tmp;}
+  const L=[];
+  const inR=d=>!!d&&d>=from&&d<=to;
+  L.push('「杜小杜的知识工作台」工作梳理');
+  L.push('区间：'+fmtCN(from)+'（'+wkCN(from)+'） 至 '+fmtCN(to)+'（'+wkCN(to)+'）');
+  L.push('自动梳理自工作台实时数据 · '+fmtFull(todayISO())+' 生成');L.push('');
+  /* 一、上课（校内外分列） */
+  const sch=db.school.filter(c=>inR(c.date)).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  const ext=db.external.filter(c=>inR(c.date)).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  const schFee=sch.reduce((a,c)=>a+(c.fee||0),0);
+  const schHeads=sch.reduce((a,c)=>a+(c.headcount||0),0);
+  const extSessions=ext.reduce((a,c)=>a+(c.sessions||1),0);
+  const extHours=ext.reduce((a,c)=>a+((Number(c.hours)||extPlanHours(c)||0)*(c.sessions||1)),0);
+  const extFee=ext.reduce((a,c)=>a+(c.fee||0),0);
+  const extHeads=ext.reduce((a,c)=>a+(c.headcount||0),0);
+  L.push('一、上课（共 '+(sch.length+ext.length)+' 场：在校 '+sch.length+' · 外出 '+extSessions+'）');
+  L.push('· 在校授课 '+sch.length+' 场 · 累计上课 '+schHeads+' 人次 · 课时费 ¥'+schFee);
+  if(sch.length)sch.forEach(c=>L.push('　· '+fmtCN(c.date)+' '+fmtClock(c.start)+'–'+fmtClock(c.end)+' '+schoolVenue(c.venue)+'「'+c.className+'」《'+c.course+'》'+(c.headcount?' '+c.headcount+'人':'')+(c.fee?'（课时费 ¥'+c.fee+'）':'')));
+  L.push('· 外出授课 '+extSessions+' 场 · 共 '+extHours+' 学时 · 累计 '+extHeads+' 人次 · 课时费 ¥'+extFee);
+  if(ext.length)ext.forEach(c=>L.push('　· '+fmtCN(c.date)+' '+fmtClock(c.start)+'–'+fmtClock(c.end)+' '+c.org+'「'+(c.className||'')+'」《'+c.course+'》'+(c.sessions>1?c.sessions+'场 ':'')+(c.hours?c.hours+'学时 ':'')+(c.headcount?' '+c.headcount+'人':'')+(c.fee?'（课时费 ¥'+c.fee+'）':'')));
+  L.push('· 课时费合计 ¥'+(schFee+extFee));
+  L.push('');
+  /* 二、备课 */
+  const prep=db.projects.filter(p=>p.module==='prep'&&(inR(p.created)||inR(p.deadline)||p.status==='active'));
+  L.push('二、备课（区间内 '+prep.length+' 项）');
+  if(prep.length)prep.forEach(p=>{const d=(p.steps||[]).filter(s=>s.done).length,a=(p.steps||[]).length;L.push('· 《'+p.title+'》（'+p.st+'，'+(p.status==='done'?'已成卷，定稿留存':'进行中 '+d+'/'+a+' 步')+'）');});
+  else L.push('· 区间内暂无备课任务');
+  L.push('');
+  /* 三、科研 */
+  const res=db.projects.filter(p=>p.module==='research'&&(inR(p.created)||inR(p.deadline)||p.status==='active'));
+  L.push('三、科研（区间内 '+res.length+' 项）');
+  if(res.length)res.forEach(p=>{const d=(p.steps||[]).filter(s=>s.done).length,a=(p.steps||[]).length;L.push('· 《'+p.title+'》（'+p.st+'，'+(p.status==='done'?'已成卷，定稿留存':'进行中 '+d+'/'+a+' 步')+'）');});
+  else L.push('· 区间内暂无科研任务');
+  L.push('');
+  /* 四、试讲 */
+  const trials=db.trials.filter(x=>inR(x.applyDate)).sort((a,b)=>(a.applyDate||'').localeCompare(b.applyDate||''));
+  L.push('四、试讲（'+trials.length+' 次）');
+  if(trials.length)trials.forEach(x=>L.push('· '+fmtCN(x.applyDate)+' 第'+(x.attempt||1)+'次试讲《'+x.course+'》（'+trialTypeName(x)+'）'+(x.passed?' · 已通过计费 ¥'+(x.fee||0):' · 未通过 / 按规则当前不计费')));
+  else L.push('· 区间内暂无试讲安排');
+  L.push('');
+  /* 五、听评课 */
+  const evals=db.evals.filter(e=>inR(e.date)).sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+  L.push('五、听评课（'+evals.length+' 场）');
+  if(evals.length)evals.forEach(e=>L.push('· '+fmtCN(e.date)+' 听 '+e.teacher+'《'+(e.course||'(未填题目)')+'》'+(e.suggestions&&e.suggestions.length?'（提出'+e.suggestions.length+'条可落地建议）':'')+(e.fee?'（听课课时费 ¥'+e.fee+'）':'')));
+  else L.push('· 区间内暂无听评课记录');
+  L.push('');
+  /* 六、微课与宣讲 */
+  const micros=db.tasks.filter(k=>k.kind==='micro'&&inR(k.date));
+  const preachs=db.tasks.filter(k=>k.kind==='preach'&&inR(k.dateStart||k.date));
+  L.push('六、微课与宣讲');
+  if(micros.length)micros.forEach(k=>L.push('· 录制微课 '+(wt(k.title))+(k.status==='done'?'（已完成，登记留底）':'（进行中）')));
+  if(preachs.length)preachs.forEach(k=>L.push('· 宣讲 '+(wt(k.title))+(k.sessions||1)+' 场'+(k.stations?' · 到访 '+k.stations:'')+(k.dateEnd&&k.dateStart&&k.dateEnd!==k.dateStart?'（'+fmtCN(k.dateStart)+'–'+fmtCN(k.dateEnd)+'）':'')+' · 宣讲费 ¥'+(k.fee||0)));
+  if(!micros.length&&!preachs.length)L.push('· 区间内暂无微课录制或宣讲任务');
+  L.push('');
+  /* 七、培训 / 获奖 / 发文 */
+  const trains=db.trains.filter(k=>inR(k.dateStart||k.date));
+  const awards=db.awards.filter(k=>inR(k.date));
+  const pubs=db.publishes.filter(k=>inR(k.date));
+  L.push('七、培训 · 获奖 · 发文');
+  if(trains.length)trains.forEach(k=>L.push('· 参加培训「'+k.name+'」'+(k.location?'@'+k.location:'')+(k.hours?' · '+k.hours+' 课时':'')+(k.dateStart?'（'+fmtCN(k.dateStart)+(k.dateEnd&&k.dateEnd!==k.dateStart?'–'+fmtCN(k.dateEnd):'')+'）':'')+(k.courses?'\n　主要课程：'+k.courses.replace(/\n+/g,'；'):'')));
+  if(awards.length)awards.forEach(k=>L.push('· 获「'+k.title+'」'+(k.level?'（'+k.level+'级）':'')+(k.content?' · '+k.content:'')));
+  if(pubs.length)pubs.forEach(k=>L.push('· '+fmtCN(k.date)+' 发表《'+k.title+'》'+(k.platform?'@'+k.platform:'')+(k.level?'（'+k.level+'）':'')+(k.cn?' CN '+k.cn:'')+(k.issn?' ISSN '+k.issn:'')));
+  if(!trains.length&&!awards.length&&!pubs.length)L.push('· 区间内暂无培训、获奖、发文记录');
+  L.push('');
+  /* 八、随手记（其他日常工作） */
+  const notes=db.notes.filter(n=>inR(n.date||n.created));
+  L.push('八、随手记 · 其他日常工作（'+notes.length+' 条）');
+  if(notes.length)notes.forEach(n=>L.push('· '+fmtCN(n.date||n.created)+' '+n.text+(n.status==='done'?'（已完成）':'')));
+  else L.push('· 区间内暂无随手记');
+  L.push('');
+  /* 九、当前进行中 & 近期待办（供下周 / 下月安排） */
+  const activeP=db.projects.filter(p=>p.status==='active');
+  const upSoon=[];
+  db.projects.forEach(p=>{(p.steps||[]).forEach(s=>{if(!s.done&&s.due>to&&s.due<=addDays(to,7))upSoon.push({p,s});});});
+  db.projects.forEach(p=>{if(p.status==='active'&&p.deadline&&p.deadline>to&&p.deadline<=addDays(to,7)&&!p.steps.some(s=>!s.done&&s.due===p.deadline))upSoon.push({p,s:null});});
+  const wActive=db.writings.filter(w=>w.status==='active'&&(!w.deadline||w.deadline>to));
+  L.push('九、当前进行中 · 近期待办（供下周 / 下月工作安排）');
+  if(activeP.length)activeP.forEach(p=>{const d=(p.steps||[]).filter(s=>s.done).length,a=(p.steps||[]).length;L.push('· 进行中：《'+p.title+'》（'+p.st+' · '+d+'/'+a+' 步'+(p.deadline?' · 截止 '+fmtCN(p.deadline):'')+'）');});
+  if(wActive.length)wActive.forEach(w=>L.push('· 进行中：《'+w.title+'》（'+(w.deadline?'截止 '+fmtCN(w.deadline):'无截止')+'）'));
+  if(upSoon.length){L.push('· 未来 7 天到期：');upSoon.forEach(u=>L.push('　· '+fmtCN(u.s?u.s.due:u.p.deadline)+' '+(u.s?(u.p.title+' · '+u.s.title):(u.p.title+' · 项目截止'))));}
+  if(!activeP.length&&!wActive.length&&!upSoon.length)L.push('· 区间结束后暂无到期事项');
+  return L.join('\n');
+}
+function renderReport(){
+  const t=todayISO();
+  const from=rangeView.from||wkStart();
+  const to=rangeView.to||t;
+  const txt=buildRangeSummary(from,to);
+  $('#content').innerHTML=`
+    <div class="page-head"><div class="page-title">区间汇总 · 任意时间段一键梳理</div>
+      <div class="tiny muted" style="margin-top:4px">选起止日期，工作台自动汇总全部工作数据，供周小结、月小结、年度总结直接复制引用。</div></div>
+    <div class="card">
+      <div class="card-head"><div class="card-title"><span class="tick"></span>选择时间区间（含起止当日）</div></div>
+      <div class="fld-row" style="gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+        <label class="tiny muted">从</label>
+        <input type="date" id="rangeFrom" value="${from}" style="border:1px solid var(--line-2);border-radius:5px;background:var(--ivory);padding:7px 10px;font-size:13px;color:var(--brown)">
+        <label class="tiny muted">至</label>
+        <input type="date" id="rangeTo" value="${to}" style="border:1px solid var(--line-2);border-radius:5px;background:var(--ivory);padding:7px 10px;font-size:13px;color:var(--brown)">
+        <button class="btn btn-primary" data-action="range-gen">${ic('search','ic-sm')}生成梳理</button>
+        <button class="btn btn-ghost" data-action="range-copy">复制</button>
+        <button class="btn btn-ghost" data-action="range-export">导出 .txt</button>
+      </div>
+      <div class="fld-row" style="gap:6px;margin-bottom:10px;flex-wrap:wrap">
+        ${[['week','本周'],['month','本月'],['quarter','本季度'],['year','本年'],['all','全部']].map(([v,l])=>`<button class="btn btn-ghost btn-sm" data-action="range-quick" data-v="${v}">${l}</button>`).join('')}
+        <span class="tiny muted" style="align-self:center">默认本周一至今天</span>
+      </div>
+      <div class="tiny muted" style="margin-bottom:8px">自动按 上课（校内外分列、统计场次·学时·人次·课时费）/ 备课 / 科研 / 试讲 / 听评课 / 微课与宣讲 / 培训·获奖·发文 / 随手记 分类梳理，并附「进行中 · 近期待办」供排下周安排；所有数据随工作台实时更新。</div>
+      <textarea id="rangeOut" readonly style="width:100%;min-height:430px;font-size:12.5px;line-height:1.8;white-space:pre-wrap">${esc(txt)}</textarea>
+    </div>`;
 }
 function schoolVenue(v){return v==='sr'?'上饶分部':'南昌本部'}
 
@@ -2989,6 +3108,7 @@ function render(){
   document.getElementById('app').classList.remove('rail-open');
   switch(r){
     case 'today':renderToday();break;
+    case 'report':renderReport();break;
     case 'prep':renderProjects('prep');break;
     case 'research':renderProjects('research');break;
     case 'trial':renderTrials();break;
@@ -3758,6 +3878,45 @@ document.addEventListener('click',e=>{
       document.body.appendChild(a);a.click();
       setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},200);
       toast('已导出成果台账');
+      break}
+    case 'range-gen':{
+      const f=document.getElementById('rangeFrom');
+      const t=document.getElementById('rangeTo');
+      const out=document.getElementById('rangeOut');
+      if(f&&t){rangeView.from=f.value;rangeView.to=t.value;}
+      if(out)out.value=buildRangeSummary(rangeView.from,rangeView.to);
+      toast('已生成区间工作梳理');
+      break}
+    case 'range-quick':{
+      const v=t.getAttribute('data-v');
+      const t2=todayISO();
+      let f,t3;
+      if(v==='week'){f=wkStart();t3=t2;}
+      else if(v==='month'){f=t2.slice(0,7)+'-01';t3=t2;}
+      else if(v==='quarter'){f=quarterStart(t2);t3=t2;}
+      else if(v==='year'){f=t2.slice(0,4)+'-01-01';t3=t2;}
+      else{f='2000-01-01';t3='2999-12-31';}
+      rangeView={from:f,to:t3};
+      renderReport();
+      toast(v==='week'?'已选本周':v==='month'?'已选本月':v==='quarter'?'已选本季度':v==='year'?'已选本年':'已选全部区间');
+      break}
+    case 'range-copy':{
+      const ta=document.getElementById('rangeOut');
+      const txt=ta?ta.value:'';
+      const done=()=>toast('区间梳理已复制，可直接粘贴进周小结 / 月小结 / 年度总结');
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(done,()=>fallbackCopy(txt,done));}
+      else fallbackCopy(txt,done);
+      break}
+    case 'range-export':{
+      const ta=document.getElementById('rangeOut');
+      const txt=ta?ta.value:'';
+      if(!txt){toast('梳理为空');break;}
+      const blob=new Blob([txt],{type:'text/plain;charset=utf-8'});
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);a.download='工作梳理-'+rangeView.from+'至'+rangeView.to+'.txt';
+      document.body.appendChild(a);a.click();
+      setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},200);
+      toast('已导出区间工作梳理');
       break}
     case 'go-pair':{
       const p=db.projects.find(x=>x.id===id());
