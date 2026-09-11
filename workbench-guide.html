@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>知识工作台 · 搭建指南（不走弯路版）</title>
+<style>
+  :root{--paper:#F5F1E8;--ivory:#FAF7F0;--card:#FFFDF8;--ink:#2B2823;--ink2:#6E675C;--green:#2F4A3C;--green2:#3E5C4C;--brown:#8A6638;--wine:#8C3B2E;--line:#DDD5C4;--line2:#E4DCCB;--tag:#EFE9DD;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--paper);color:var(--ink);font-family:'Noto Serif SC','Songti SC','PingFang SC','Microsoft YaHei',serif;line-height:1.7;padding:32px 20px 60px;}
+  .wrap{max-width:1080px;margin:0 auto;}
+  .masthead{border-bottom:2px solid var(--green);padding-bottom:18px;margin-bottom:26px;}
+  .masthead h1{font-size:26px;letter-spacing:.08em;color:var(--green);font-weight:900;}
+  .masthead .sub{font-size:13px;color:var(--ink2);margin-top:6px;}
+  .seal{display:inline-block;border:1.5px solid var(--wine);color:var(--wine);font-size:12px;padding:2px 10px;border-radius:4px;margin-left:10px;letter-spacing:.2em;vertical-align:middle;}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);margin:0 0 18px;padding:10px 14px;background:var(--ivory);border:1px solid var(--line);border-radius:8px;}
+  .legend b.done{color:var(--green);} .legend b.pit{color:var(--wine);} .legend b.out{color:var(--brown);}
+  .stage{background:var(--ivory);border:1px solid var(--line);border-left:5px solid var(--green);border-radius:10px;padding:14px 16px;margin-bottom:18px;}
+  .stage.hot{border-left-color:var(--wine);background:#FBF6F3;}
+  .stage.deploy{border-left-color:var(--brown);background:#FBF7F1;}
+  .stage-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+  .stage-no{background:var(--green);color:var(--ivory);font-size:12px;padding:2px 10px;border-radius:4px;letter-spacing:.06em;white-space:nowrap;}
+  .stage.hot .stage-no{background:var(--wine);}
+  .stage.deploy .stage-no{background:var(--brown);}
+  .stage-title{font-size:15px;font-weight:700;color:var(--green);}
+  .stage.hot .stage-title{color:var(--wine);} .stage.deploy .stage-title{color:#8A6638;}
+  .stage-out{font-size:11.5px;color:var(--ink2);}
+  .cards{display:flex;gap:10px;flex-wrap:wrap;}
+  .card{flex:1 1 220px;min-width:0;background:var(--card);border:1px solid var(--line2);border-radius:8px;padding:9px 11px;font-size:12.5px;font-family:'PingFang SC','Noto Sans SC',sans-serif;}
+  .card b{color:var(--green);}
+  .card code{background:var(--tag);padding:0 5px;border-radius:3px;font-size:11.5px;font-family:Menlo,Consolas,monospace;}
+  .pit{margin-top:9px;font-size:11.5px;color:var(--wine);}
+  .pit::before{content:"▲ 避坑：";font-weight:700;}
+  .flow-line{display:flex;align-items:center;gap:8px;color:var(--brown);font-size:16px;margin:6px 0 16px;padding-left:4px;}
+  .flow-line span{background:var(--tag);color:var(--ink2);font-size:11px;padding:2px 10px;border-radius:20px;}
+  .summary{background:var(--tag);border-radius:8px;padding:12px 14px;font-size:12.5px;color:#4A453C;margin-top:8px;font-family:'PingFang SC',sans-serif;}
+  .summary b{color:var(--wine);}
+  .mind{background:var(--green);color:var(--ivory);border-radius:10px;padding:16px 18px;margin-top:22px;}
+  .mind h3{font-size:15px;letter-spacing:.1em;margin-bottom:10px;}
+  .mind p{font-size:12.5px;line-height:1.9;opacity:.94;}
+  .footer{text-align:center;color:var(--ink2);font-size:11.5px;margin-top:26px;letter-spacing:.08em;}
+  @media print{body{padding:10px;background:#fff;} .stage{break-inside:avoid;} .card{break-inside:avoid;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <h1>知识工作台 · 搭建指南<span class="seal">不走弯路版</span></h1>
+    <div class="sub">从零到上线，按阶段照抄即可。全程基于「杜小杜的知识工作台」真实搭建经验沉淀 · 2026年9月 · 共 8 阶段</div>
+  </div>
+
+  <div class="legend">
+    <span><b class="done">■</b> 必做步骤</span>
+    <span><b class="pit">▲</b> 避坑（血泪教训）</span>
+    <span><b class="out">◆</b> 交付物</span>
+    <span>阅读方向：自上而下，按阶段序号执行，不要跳步</span>
+  </div>
+
+  <div class="flow-line">需求 <span>↓</span> 架构 <span>↓</span> 数据安全 <span>↓</span> 界面骨架 <span>↓</span> 功能 <span>↓</span> 测试 <span>↓</span> 部署 <span>↓</span> 维护</div>
+
+  <!-- 阶段0 -->
+  <div class="stage">
+    <div class="stage-head"><span class="stage-no">阶段 0</span><span class="stage-title">需求拆解 · 先问清，再动手</span><span class="stage-out">◆ 模块清单 + 字段清单 + 业务规则清单</span></div>
+    <div class="cards">
+      <div class="card"><b>① 锁定身份与工作流</b><br>职业（党校教授）+ 全部业务（备课/上课/科研/试讲/听评课/写作/习课）逐个列成模块</div>
+      <div class="card"><b>② 逐条收集业务口径</b><br>计费（上饶480｜南昌400/600/800｜首次科级+200｜外出2课时400等六档）、试讲规则、微课5步、统计口径</div>
+      <div class="card"><b>③ 问清底线偏好</b><br>视觉风格、数据实时保存可溯源、课程可从专题库下拉、提示词必须深度分析不编造</div>
+    </div>
+  </div>
+
+  <!-- 阶段1 -->
+  <div class="stage">
+    <div class="stage-head"><span class="stage-no">阶段 1</span><span class="stage-title">架构定案 · 一次定死，别来回改</span><span class="stage-out">◆ 单文件 index.html</span></div>
+    <div class="cards">
+      <div class="card"><b>① 单文件原生 HTML/CSS/JS</b><br>零框架、零构建，一个 index.html 全包；三方库仅白名单 CDN（字体走国内镜像）</div>
+      <div class="card"><b>② 数据存 localStorage</b><br>key 定死为 <code>应用名_v2</code> 永不更改；升级加后缀迁移，改 key = 数据全丢</div>
+      <div class="card"><b>③ Hash 路由 + 视觉</b><br><code>#/prep</code>、<code>#/class</code> 免服务器配置；米白/象牙白/深墨绿/灰棕+酒红，禁科技蓝/卡通/OA</div>
+    </div>
+    <div class="pit">为省事先写功能不写架构 → 后面加模块四处打补丁，路由乱成一团</div>
+  </div>
+
+  <!-- 阶段2 -->
+  <div class="stage hot">
+    <div class="stage-head"><span class="stage-no">阶段 2</span><span class="stage-title">数据安全层 · 最先搭，生命线</span><span class="stage-out">◆ 三级备份 + 云同步 + 结构保障</span></div>
+    <div class="cards">
+      <div class="card"><b>① 三级防丢</b><br>主数据 KEY + 影子备份 KEY_shadow + 每日快照（保留14天），主数据损坏自动回退</div>
+      <div class="card"><b>② Gitee 双向同步</b><br>打开拉取/保存推送；<code>_cloudReady</code> 标志——初始拉取完成前禁止推送</div>
+      <div class="card"><b>③ ensureSchema 统一补结构</b><br>本地旧数据/云端/导入备份后必补数组；缺字段 → 渲染崩溃、页面切换中断</div>
+      <div class="card"><b>④ 防卡防覆盖</b><br>拉取加 8 秒超时；云端结构异常不覆盖本地；本地更新更多时不被旧备份顶掉</div>
+    </div>
+    <div class="pit">自动推送跑在初始拉取前 → 种子数据覆盖云端好数据（用户最恐惧的事）；拉取无超时 → 打开卡顿</div>
+  </div>
+
+  <!-- 阶段3 -->
+  <div class="stage">
+    <div class="stage-head"><span class="stage-no">阶段 3</span><span class="stage-title">UI 框架 · 导航骨架</span><span class="stage-out">◆ 可导航的空壳</span></div>
+    <div class="cards">
+      <div class="card"><b>① MODULES 注册</b><br>name / vol（卷标）/ icon 三个字段定义全部路由</div>
+      <div class="card"><b>② renderNav()</b><br>左侧分组导航（案头 / 书卷·七录 / 工具），带未完成计数徽标</div>
+      <div class="card"><b>③ render() 分发</b><br>switch(r) 调对应渲染函数 + 顶部栏显示模块名/日期</div>
+    </div>
+    <div class="pit">新增模块四步缺一不可（MODULES + render函数 + switch case + 导航组）——少一步点导航就回首页</div>
+  </div>
+
+  <!-- 阶段4 -->
+  <div class="stage">
+    <div class="stage-head"><span class="stage-no">阶段 4</span><span class="stage-title">功能开发 · 按此顺序，每步做完立即保存</span><span class="stage-out">◆ 全模块可用工作台</span></div>
+    <div class="cards">
+      <div class="card"><b>① 案头首页</b><br>今日课时/课时费/待办/进行中项目/灵感札记，一屏总览</div>
+      <div class="card"><b>② 上课</b><br>校内外两表 + 计费口径硬编码 + 月度追溯 + 区间汇总，统计全部实时计算</div>
+      <div class="card"><b>③ 备课/科研</b><br>项目卡片 + 自动拆步骤排日期 + 版本历史（未完成可回退，完成留最终版）</div>
+      <div class="card"><b>④ 试讲/听评课</b><br>流程勾选框每次新建必须重置，不记住上次状态</div>
+      <div class="card"><b>⑤ 随手记</b><br>自然语言输入 → 正则解析 → 自动归类到对应模块 → 用户点确认才入库</div>
+      <div class="card"><b>⑥ 灵感库 + 素材</b><br>灵感可设为"备课指导"；素材每日推送10条不同来源，确认有用才存云端</div>
+      <div class="card"><b>⑦ 豆包开工入口</b><br>按课程/模块生成提示词 → 复制 → 打开 doubao.com/chat；纯前端不做真实AI调用</div>
+      <div class="card"><b>⑧ 写作/范文库/好课库</b><br>导入文件 → 自动识别字段 → 深度分析 → 技法级提示词 → 豆包直达</div>
+    </div>
+    <div class="pit">讲稿与课件要成对联动（pairId 双向关联）——只建不连，两者各算各的；Excel 导入必须剔除"合计"行否则费用翻倍</div>
+  </div>
+
+  <!-- 阶段5 -->
+  <div class="stage">
+    <div class="stage-head"><span class="stage-no">阶段 5</span><span class="stage-title">测试 · 用"会失败"的动作验证</span><span class="stage-out">◆ 全路由渲染通过</span></div>
+    <div class="cards">
+      <div class="card"><b>① 语法闸</b><br>提取 script 后 <code>node --check</code>，括号/引号配平</div>
+      <div class="card"><b>② DOM shim 全路由测试</b><br>Node vm 模拟浏览器渲染每个模块，每功能至少3用例（正常/边界/异常）</div>
+      <div class="card"><b>③ 旧数据兼容回归</b><br>模拟缺新字段的旧版数据加载 → 不崩溃；关键统计（课时费/学时/人次）抽样重算核对</div>
+    </div>
+  </div>
+
+  <!-- 阶段6 -->
+  <div class="stage deploy">
+    <div class="stage-head"><span class="stage-no">阶段 6</span><span class="stage-title">部署 · 国内可访问（电脑端）</span><span class="stage-out">◆ 公网链接</span></div>
+    <div class="cards">
+      <div class="card"><b>① 主站 GitHub Pages</b><br><code>deploy_to_github.sh</code> 上传 index.html；域名 <code>username.github.io/repo/</code> 返回 text/html 正确渲染</div>
+      <div class="card"><b>② 备份 Gitee</b><br>Contents API PUT（先取 SHA），存 index.html + backup/数据.json，双端容灾</div>
+      <div class="card"><b>③ 线上验证</b><br>curl 加 <code>?cb=时间戳</code> 绕 CDN 缓存，grep 关键代码串确认已更新</div>
+    </div>
+    <div class="pit">手机端死路勿再试：Vercel（Google 登录被墙）、Gitee Pages（官方下线）、腾讯云COS（iPhone 打不开）、jsDelivr（显示源码）、Surge/EdgeOne（不稳/限时）。手机端放弃，专注 Mac</div>
+  </div>
+
+  <!-- 阶段7 -->
+  <div class="stage">
+    <div class="stage-head"><span class="stage-no">阶段 7</span><span class="stage-title">数据迁移与维护 · 长期不丢数据</span><span class="stage-out">◆ 可随时换站/升级的持久数据</span></div>
+    <div class="cards">
+      <div class="card"><b>① 换站迁移</b><br>旧站「数据安全中心」导出 JSON → 新站导入备份（自动补结构），不丢一条</div>
+      <div class="card"><b>② 升级规则</b><br>localStorage key 永不改、新增字段靠 ensureSchema 兼容旧数据、发布后提醒 Cmd+Shift+R 强刷</div>
+      <div class="card"><b>③ 交付三件套</b><br>index.html 源文件 + 公网链接 + 部署说明（令牌/仓库/备份路径），完整交代</div>
+    </div>
+  </div>
+
+  <div class="summary"><b>全流程速查避坑清单：</b>① 新模块必须 MODULES+render+switch+导航四步齐 → ② 云推送必须在初始拉取后（_cloudReady）→ ③ localStorage key 定死永不改 → ④ 讲稿课件用 pairId 双向联动 → ⑤ 试讲/听评课勾选框每次重置 → ⑥ Excel 导入先剔合计行 → ⑦ 数据源统一走 ensureSchema 补结构 → ⑧ 部署只用 GitHub Pages 主站 + Gitee 备份，手机端不折腾。</div>
+
+  <div class="mind">
+    <h3>三句心法</h3>
+    <p>① 数据安全层最先搭——一切功能都长在数据上，三级备份 + 云同步 + 结构保障必须先于功能存在。<br>② 每个新模块四步闭环——MODULES 注册、渲染函数、路由分发、导航入口，缺一步就"加了但点不到"。<br>③ 部署只认 GitHub Pages 主站 + Gitee 备份——国内其他方案（Vercel / COS / jsDelivr / EdgeOne）全部踩过坑，别再走。</p>
+  </div>
+
+  <div class="footer">「杜小杜的知识工作台」· 搭建指南 · 2026年9月 · 印刷友好，可打印保存</div>
+</div>
+</body>
+</html>
